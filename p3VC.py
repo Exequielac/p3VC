@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 """
 @author: Exequiel Alberto Castro Rivero
-DNI: 78308513E
 """
 
 #########################################################################
@@ -11,25 +10,29 @@ DNI: 78308513E
 # Terminar de rellenar este bloque con lo que vaya haciendo falta
 import ssl
 ssl._create_default_https_context = ssl._create_unverified_context
-import gc
 
 # Importar librerías necesarias
 import tensorflow as tf
 import numpy as np
-from tensorflow import keras
 import matplotlib.pyplot as plt
 import tensorflow.keras.utils as np_utils
+import pickle
 
 # Importar modelos y capas específicas que se van a usar
 from tensorflow.keras.models import Sequential
-from tensorflow.keras.layers import Dense, Dropout, Flatten
+from tensorflow.keras.layers import Dense, Flatten
 from tensorflow.keras.layers import Conv2D, MaxPooling2D
 
 # Importar el optimizador a usar
-from tensorflow.keras.optimizers import SGD
+from tensorflow.keras.optimizers import Adam
+
+# Importar la función de pérdida a usar
+from tensorflow.keras.losses import categorical_crossentropy
 
 # Importar el conjunto de datos
 from tensorflow.keras.datasets import cifar100
+
+FAST = False
 
 
 #########################################################################
@@ -99,92 +102,194 @@ def calcularAccuracy(labels, preds):
 # del entrenamiento del modelo (lo que devuelven las funciones
 # fit() y fit_generator()).
 
-def mostrarEvolucion(hist):
+def mostrarEvolucion(hist, batch_size):
 
-  loss = hist.history['loss']
-  val_loss = hist.history['val_loss']
+  loss = hist['loss']
+  val_loss = hist['val_loss']
   plt.plot(loss)
   plt.plot(val_loss)
   plt.legend(['Training loss', 'Validation loss'])
+  plt.title("Batch size = " + str(batch_size))
   plt.show()
 
-  acc = hist.history['accuracy']
-  val_acc = hist.history['val_accuracy']
+  acc = hist['accuracy']
+  val_acc = hist['val_accuracy']
   plt.plot(acc)
   plt.plot(val_acc)
   plt.legend(['Training accuracy', 'Validation accuracy'])
+  plt.title("Batch size = " + str(batch_size))
   plt.show()
   
 
+# =============================================================================
 # EJERCICIO 1
-  
-x_train, y_train, x_test, y_test = cargarImagenes()
+# =============================================================================
 
 #########################################################################
 ################## DEFINICIÓN DEL MODELO BASENET ########################
 #########################################################################
 
-input_shape = (32, 32, 3)
-num_classes = 25
+# Función que crea el modelo BaseNet indicado en la práctica. Recibe como
+# parámetros el input_shape de las imágenes de entrada (dimensiones de la
+# imagen de entrada) y el número de clases que se están tratando (num_classes).
 
-model = Sequential()
-model.add(Conv2D(6, kernel_size=(5, 5),
-                 activation='relu',
-                 input_shape=input_shape))
-model.add(MaxPooling2D(pool_size=(2, 2)))
-model.add(Conv2D(16, kernel_size=(5, 5),
-                 activation='relu'))
-model.add(MaxPooling2D(pool_size=(2, 2)))
-model.add(Flatten())
-model.add(Dense(50, activation='relu'))
-model.add(Dense(num_classes, activation='softmax'))
+def get_basenet(input_shape, num_classes):
+    
+    # El modelo BaseNet se define como un modelo secuencial, las capas añadidas
+    # se irán apilando al final.
+    model = Sequential()
+    
+    # Siguiendo la tabla de referencia se observa que la primera capa realiza
+    # una convolución 2D con un kernel 5x5 sin padding (para que las dimensiones
+    # del output sean 28) y con activación relu. El número de filtros a usar es
+    # 6, puesto que en la tabla se especifica que el número de canales de salida
+    # es 6.
+    model.add(Conv2D(6, kernel_size=(5, 5), activation='relu',
+                     input_shape=input_shape))
+    
+    # Se sigue con una MaxPooling2D para reducir a la mitad ambas dimensiones.
+    model.add(MaxPooling2D(pool_size=(2, 2)))
 
+    # Se realiza otra convolución 2D, con 16 filtros.
+    model.add(Conv2D(16, kernel_size=(5, 5), activation='relu'))
+    
+    # Otra capa MaxPooling2D
+    model.add(MaxPooling2D(pool_size=(2, 2)))
+    
+    # Se realiza un "aplanado" de los datos. Lo que se consigue con esto es 
+    # disponer de todos los píxeles en un array 1D para poder conectarlos
+    # totalmente a las neuronas posteriores.
+    model.add(Flatten())
+    
+    # Se mete una capa totalmente conectada con activación relu tal y como se
+    # especifica en la tabla. El número de neuronas es 50.
+    model.add(Dense(50, activation='relu'))
 
-# A completar
-# 1.- Incluir  import del tipo de modelo y capas a usar
-# 2.- definir model e incluir las capas en él
+    # Se mete una capa totalmente conectada con el número de clases que se están
+    # tratando y con activación 'softmax'. Esto es así porque se trata de un
+    # problema de clasificación multiclase, y se usa softmax para que la salida
+    # de cada neurona de esta capa sea la probabilidad de pertenecer a cada 
+    # clase.
+    model.add(Dense(num_classes, activation='softmax'))
+    
+    return model
 
 #########################################################################
 ######### DEFINICIÓN DEL OPTIMIZADOR Y COMPILACIÓN DEL MODELO ###########
 #########################################################################
 
-model.compile(loss=tf.keras.losses.categorical_crossentropy,
-              optimizer=tf.keras.optimizers.Adam(),
-              metrics=['accuracy'])
+# Justificación Adam: https://arxiv.org/pdf/1412.6980.pdf
 
-
-# Una vez tenemos el modelo base, y antes de entrenar, vamos a guardar los 
-# pesos aleatorios con los que empieza la red, para poder reestablecerlos 
-# después y comparar resultados entre no usar mejoras y sí usarlas.
-weights = model.get_weights()
+# Compilación del modelo. TO DO
+def model_compile(model):
+    
+    # Compilación del modelo, como se trata de un problema de clasificación
+    # multiclase se usa como función de pérdida la entropía cruzada categórica.
+    # El optimizador usado es Adam por su conocida robustez.
+    model.compile(loss=categorical_crossentropy, optimizer=Adam(),
+                  metrics=['accuracy'])
 
 #########################################################################
 ###################### ENTRENAMIENTO DEL MODELO #########################
 #########################################################################
 
-hist = model.fit(x_train, y_train,
-          batch_size=256,
-          epochs=100,
+# Entrenamiento del modelo, los datos de entrenamiento son pasados por parámetros
+# (x_train e y_train) además del tamaño de batch (batch_size) y el número de
+# épocas (epochs). Se devuelve el historial del entrenamiento para su posterior
+# visualización.
+def train_model(model, x_train, y_train, batch_size, epochs):
+
+    # Se realiza el entrenamiento con los parámetros pasados. Tal y como se
+    # se indica en el enunciado, se usa un 10% de los datos para validación.
+    hist = model.fit(x_train, y_train,
+          batch_size=batch_size,
+          epochs=epochs,
           verbose=1,
           validation_split=0.1)
-
-mostrarEvolucion(hist)
+    
+    return hist
 
 #########################################################################
 ################ PREDICCIÓN SOBRE EL CONJUNTO DE TEST ###################
 #########################################################################
 
-#Incluir model.eva.luate() 
-#Incluir función que muestre la perdida y accuracy del test
-score = model.evaluate(x_test, y_test, verbose=0)
-print('Test loss:', score[0])
-print('Test accuracy:', score[1])
+# Justificación del batch_size: https://arxiv.org/pdf/1606.02228.pdf
 
-del model
-del hist
-del tf
-gc.collect()
+# Función que dados los datos de test (x_test e y_test) calcula la función de
+# pérdida en el modelo dado (model) y el accuracy.
+def get_loss_accuraccy(model, x_test, y_test):
+    score = model.evaluate(x_test, y_test, verbose=0)
+    
+    return score[0], score[1]
 
+
+#########################################################################
+################ FUNCIÓN DE EJECUCIÓN DEL EJERCICIO 1 ###################
+#########################################################################
+
+# Función que se encarga de la ejecución del ejercicio 1
+def ejercicio1():
+    print("------------- EJERCICIO 1 -------------\n") 
+    
+    # Se definen los parámetros a usar. El número de épocas se establece a 100
+    # porque se considera que son suficientes para ver el comportamiento de la
+    # función de pérdida y la accuracy (además de porque más épocas supone
+    # más tiempo de cómputo). Para el tamaño de batch se van a probar varios
+    # valores y se van a comprobar las diferencias
+    epochs = 100
+    batch_size = [32, 64, 128, 256]
+    
+    # Primero se obtienen los datos
+    x_train, y_train, x_test, y_test = cargarImagenes()
+    
+    # Se establecen el input_shape y el número de clases (dados en el enunciado)
+    input_shape = (32,32,3)
+    num_classes = 25
+    
+    # Se obtiene el modelo
+    model = get_basenet(input_shape, num_classes)
+    
+    # Se imprime el resumen del modelo dado
+    print("Resumen del modelo diseñado\n")
+    model.summary()
+    input("\n--- Pulsar tecla para continuar ---\n")
+    
+    # Compilación del modelo
+    model_compile(model)
+    
+    # Una vez tenemos el modelo base, y antes de entrenar, vamos a guardar los 
+    # pesos aleatorios con los que empieza la red, para poder reestablecerlos 
+    # después y comparar resultados entre no usar mejoras y sí usarlas.
+    weights = model.get_weights()
+    
+    print("Experimentación con diferentes tamaños de batch\n")
+    
+    # Para cada tamaño de batch se realiza el entrenamiento
+    for batch in batch_size:
+        # Se inicializan los pesos para que no haya entrenamiento incremental
+        model.set_weights(weights)
+        
+        print("\n--- Batch_size = " + str(batch) + "\n")
+        
+        # Se entrena el modelo con el batch
+        hist = train_model(model, x_train, y_train, batch, epochs)
+        
+        print("\n------ Evolución función de pérdida y accuracy")
+        
+        # Se pintan los gráficos que muestran la evolución de la función de
+        # pérdida y el accuracy.
+        mostrarEvolucion(hist.history, batch)
+        
+        input("\n--- Pulsar tecla para continuar ---\n")
+        
+        print("------ Valores de pérdida y accuracy obtenidos en test\n\n")
+        
+        # Valor de pérdida y accuracy en test
+        loss_test, acc_test = get_loss_accuraccy(model, x_test, y_test)
+        print('Test loss:', loss_test)
+        print('Accuracy test:', acc_test)
+        
+        input("\n--- Pulsar tecla para continuar ---\n")
 
 #########################################################################
 ########################## MEJORA DEL MODELO ############################

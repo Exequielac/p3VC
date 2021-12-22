@@ -10,6 +10,7 @@
 # Terminar de rellenar este bloque con lo que vaya haciendo falta
 import ssl
 ssl._create_default_https_context = ssl._create_unverified_context
+import gc
 
 # Importar librerías necesarias
 import tensorflow as tf
@@ -20,8 +21,10 @@ from sklearn.model_selection import train_test_split
 
 # Importar modelos y capas específicas que se van a usar
 from tensorflow.keras.models import Sequential
-from tensorflow.keras.layers import Dense, Flatten, LeakyReLU
+from tensorflow.keras.layers import Dense, Flatten, Dropout, ReLU, BatchNormalization, LeakyReLU
 from tensorflow.keras.layers import Conv2D, MaxPooling2D, Conv2DTranspose
+
+from tensorflow.keras.preprocessing.image import load_img,img_to_array
 
 # Importar el optimizador a usar
 from tensorflow.keras.optimizers import Adam
@@ -31,6 +34,8 @@ from tensorflow.keras.losses import categorical_crossentropy
 
 # Importar el conjunto de datos
 from tensorflow.keras.datasets import cifar100
+
+from tensorflow.keras.applications.resnet50 import ResNet50, preprocess_input
 
 from tensorflow.keras.preprocessing.image import ImageDataGenerator
 import scipy
@@ -327,7 +332,7 @@ def split_train_val(x_train, y_train):
 
 # Función que recibe los conjuntos de entrenamiento y test y devuelve los iteradores
 # de entrenamiento, validación y test normalizados de acuerdo a las muestras de
-# entrenamiento. También recibe como parámetro el número de batches.
+# entrenamiento. También recibe como parámetro el número de batches (batch_size).
 
 def normalize_images(x_train, y_train, x_test, y_test, batch_size):
     
@@ -384,7 +389,7 @@ def get_loss_accuraccy_it(model, it_test):
 
 # Función de ejecución de la primera mejora
 def mejora1():
-    print("------------- MEJORA 1\n") 
+    print("------------- MEJORA 1: Normalización de los datos\n") 
     
     # Se definen los parámetros a usar. El número de épocas se establece a 100
     # porque se considera que son suficientes para ver el comportamiento de la
@@ -433,11 +438,17 @@ def mejora1():
     print('Accuracy test:', acc_test)
     
     input("\n--- Pulsar tecla para continuar ---\n")
+    
+    tf.keras.backend.clear_session()
 
 
 # =============================================================================
 # MEJORA 2 -> Introducción de Early Stopping
 # =============================================================================
+
+#########################################################################
+################### ENTRENAMIENTO CON EARLY STOPPING ####################
+#########################################################################
 
 # Entrenamiento del modelo, los datos de entrenamiento y validación son pasados
 # por parámetros mediante iteradores (it_train, it_val) junto al número de épocas
@@ -449,7 +460,7 @@ def train_model_early(model, it_train, it_val, epochs):
     # entrenamiento. El early stopping se realiza sobre la función de pérdida
     # en el conjunto de validación (tal y como se ha visto en AA, llegado el
     # momento en el que el error en validación sube es mejor parar). El número
-    # de épocas en las que no tiene que haber mejora se establece a 5 por 
+    # de épocas en las que no tiene que haber mejora se establece a 15 por 
     # experimentación. Los mejores pesos encontrados se restauran.
     callback = tf.keras.callbacks.EarlyStopping(monitor='val_loss', patience=15,
                                                 restore_best_weights = True)
@@ -471,7 +482,7 @@ def train_model_early(model, it_train, it_val, epochs):
 
 # Función de ejecución de la mejora 2.
 def mejora2():
-    print("------------- MEJORA 2\n") 
+    print("------------- MEJORA 2: Entrenamiento con Early Stopping\n") 
     
     # Se definen los parámetros a usar. El número de épocas se establece a 100
     # porque se considera que son suficientes para ver el comportamiento de la
@@ -501,7 +512,7 @@ def mejora2():
     # Compilación del modelo
     model_compile(model)
     
-    # Se entrena el modelo
+    # Se entrena el modelo con early_stopping
     hist = train_model_early(model, it_train, it_val, epochs)
     
     print("\n------ Evolución función de pérdida y accuracy")
@@ -521,9 +532,15 @@ def mejora2():
     
     input("\n--- Pulsar tecla para continuar ---\n")
     
+    tf.keras.backend.clear_session()
+    
 # =============================================================================
 # MEJORA 3 -> Data augmentation
 # =============================================================================
+
+#########################################################################
+########################## DATA AUGMENTATION ############################
+#########################################################################
 
 # Función que recibe los conjuntos de entrenamiento y test y devuelve un iterador
 # de entrenamiento con datos aumentados y normalizados, además de los iteradores
@@ -542,9 +559,9 @@ def data_augmentation_normalized(x_train, y_train, x_test, y_test, batch_size):
     # los datos. En concreto, se tomarán rotaciones y zoom con unos valores no
     # demasiado grandes para no obtener un empeoramiento drástico.
     datagenTrain = ImageDataGenerator(featurewise_center = True, 
-                                 featurewise_std_normalization = True,
-                                 rotation_range = 15, zoom_range = 0.2,
-                                 horizontal_flip = True)
+                                 featurewise_std_normalization = True, 
+                                 zoom_range = 0.25, horizontal_flip = True,
+                                 rotation_range = 20)
     
     # Se crea el objeto que se va encargar de normalizar los datos con los
     # parámetros correspondientes (para test y validación)
@@ -569,7 +586,7 @@ def data_augmentation_normalized(x_train, y_train, x_test, y_test, batch_size):
 
 # Función de ejecución de la mejora 3.
 def mejora3():
-    print("------------- MEJORA 3\n") 
+    print("------------- MEJORA 3: Data augmentation\n") 
     
     # Se definen los parámetros a usar. El número de épocas se establece a 100
     # porque se considera que son suficientes para ver el comportamiento de la
@@ -581,7 +598,8 @@ def mejora3():
     # Primero se obtienen los datos
     x_train, y_train, x_test, y_test = cargarImagenes()
     
-    # Se obtienen los iteradores con los datos normalizados
+    # Se obtienen los iteradores con los datos normalizados y aumentados (sólo
+    # entrenamiento)
     it_train, it_val, it_test = data_augmentation_normalized(x_train, y_train,
                                                              x_test, y_test,
                                                              batch_size)
@@ -601,7 +619,7 @@ def mejora3():
     # Compilación del modelo
     model_compile(model)
     
-    # Se entrena el modelo
+    # Se entrena el modelo con early_stopping
     hist = train_model_early(model, it_train, it_val, epochs)
     
     print("\n------ Evolución función de pérdida y accuracy")
@@ -627,6 +645,10 @@ def mejora3():
 # MEJORA 4 -> Aumento de la profundidad del modelo
 # =============================================================================
 
+#########################################################################
+########################## BASENET AMPLIADO #############################
+#########################################################################
+
 # Función que crea el modelo BaseNet ampliado. Recibe como
 # parámetros el input_shape de las imágenes de entrada (dimensiones de la
 # imagen de entrada) y el número de clases que se están tratando (num_classes).
@@ -646,39 +668,17 @@ def get_deep_basenet(input_shape, num_classes):
     # Además, se le da más importancia a las características centrales.
     model.add(Conv2DTranspose(6, kernel_size=(3, 3), activation='relu'))
     
-    # Siguiendo la tabla de referencia se observa que la primera capa realiza
-    # una convolución 2D con un kernel 5x5 sin padding (para que las dimensiones
-    # del output sean 28) y con activación relu. El número de filtros a usar es
-    # 6, puesto que en la tabla se especifica que el número de canales de salida
-    # es 6.
+    # Convolución 2D 5x5 con 6 filtros
     model.add(Conv2D(6, kernel_size=(5, 5), activation='relu'))
-    
-    # Se realiza una convolución con 6 filtros de tamaño 3x3.
-    model.add(Conv2D(6, kernel_size=(3, 3), activation='relu'))
-    
-    # Se realiza otra convolución 2D de 3x3 con 6 filtros
-    model.add(Conv2D(6, kernel_size=(3, 3), activation='relu'))
     
     # Se sigue con una MaxPooling2D para reducir a la mitad ambas dimensiones.
     model.add(MaxPooling2D(pool_size=(2, 2)))
-    
-    # Se realiza una convolución transpuesta para no perder demasiada dimensionalidad.
-    # Además, se le da más importancia a las características centrales.
-    model.add(Conv2DTranspose(16, kernel_size=(3, 3), activation='relu'))
-    
-    # Se realiza una convolución 1x1 para que las convoluciones siguientes no
-    # sean tan pesadas. La convolución se realiza con 4 filtros. 
-    model.add(Conv2D(4, kernel_size=(1, 1), activation=LeakyReLU()))
 
     # Se realiza otra convolución 2D, con 16 filtros.
     model.add(Conv2D(16, kernel_size=(5, 5), activation='relu'))
     
-    # Se realiza una convolución 1x1 para que las convoluciones siguientes no
-    # sean tan pesadas. La convolución se realiza con 4 filtros. 
-    model.add(Conv2D(4, kernel_size=(1, 1), activation='relu'))
-    
-    # Se realiza otra convolución 2D de 3x3 con 6 filtros
-    model.add(Conv2D(16, kernel_size=(3, 3), activation='relu'))
+    # Se realiza otra convolución 2D, con 32 filtros.
+    model.add(Conv2D(32, kernel_size=(3, 3), activation='relu'))
     
     # Otra capa MaxPooling2D
     model.add(MaxPooling2D(pool_size=(2, 2)))
@@ -700,107 +700,13 @@ def get_deep_basenet(input_shape, num_classes):
     model.add(Dense(num_classes, activation='softmax'))
     
     return model
-    
-    # El modelo BaseNet se define como un modelo secuencial, las capas añadidas
-    # se irán apilando al final.
-    model = Sequential()
-    
-    # Se realiza una convolución transpuesta para no perder demasiada dimensionalidad.
-    # Además, se le da más importancia a las características centrales.
-    model.add(Conv2DTranspose(64, kernel_size=(3, 3), activation=LeakyReLU(),
-                              input_shape=input_shape))
-    
-    # Se realiza una convolución 1x1 para que las convoluciones siguientes no
-    # sean tan pesadas. La convolución se realiza con 8 filtros. 
-    model.add(Conv2D(16, kernel_size=(1, 1), activation=LeakyReLU()))
-    
-    # Se realiza una convolución transpuesta para no perder demasiada dimensionalidad.
-    # Además, se le da más importancia a las características centrales.
-    model.add(Conv2DTranspose(64, kernel_size=(3, 3), activation=LeakyReLU()))
-    
-    # Se realiza una convolución 1x1 para que las convoluciones siguientes no
-    # sean tan pesadas. La convolución se realiza con 8 filtros. 
-    model.add(Conv2D(16, kernel_size=(1, 1), activation=LeakyReLU()))
-    
-    # Se realiza una convolución inicial con 16 filtros de tamaño 3x3. La
-    # activación es Leaky Relu.
-    model.add(Conv2D(64, kernel_size=(3, 3), activation=LeakyReLU()))
-    
-    # Se realiza una convolución 1x1 para que las convoluciones siguientes no
-    # sean tan pesadas. La convolución se realiza con 8 filtros. 
-    model.add(Conv2D(16, kernel_size=(1, 1), activation=LeakyReLU()))
-    
-    # Se realiza otra convolución 2D de 3x3 con 16 filtros
-    model.add(Conv2D(64, kernel_size=(3, 3), activation=LeakyReLU()))
-    
-    # Se realiza una convolución 1x1 para que las convoluciones siguientes no
-    # sean tan pesadas. La convolución se realiza con 8 filtros. 
-    model.add(Conv2D(16, kernel_size=(1, 1), activation=LeakyReLU()))
-    
-    # Se realiza otra convolución 2D de 3x3 con 16 filtros
-    model.add(Conv2D(64, kernel_size=(3, 3), activation=LeakyReLU()))
-    
-    # Se realiza una convolución 1x1 para que las convoluciones siguientes no
-    # sean tan pesadas. La convolución se realiza con 8 filtros. 
-    model.add(Conv2D(16, kernel_size=(1, 1), activation=LeakyReLU()))
-    
-    # Se realiza otra convolución 2D de 3x3 con 16 filtros
-    model.add(Conv2D(64, kernel_size=(3, 3), activation=LeakyReLU()))
-    
-    # Se sigue con una MaxPooling2D para reducir a la mitad ambas dimensiones.
-    model.add(MaxPooling2D(pool_size=(2, 2)))
-    
-    # Se realiza una convolución transpuesta para no perder demasiada dimensionalidad.
-    # Además, se le da más importancia a las características centrales.
-    model.add(Conv2DTranspose(128, kernel_size=(3, 3), activation=LeakyReLU()))
-    
-    # Se realiza una convolución 1x1 para que las convoluciones siguientes no
-    # sean tan pesadas. La convolución se realiza con 8 filtros. 
-    model.add(Conv2D(32, kernel_size=(1, 1), activation=LeakyReLU()))
-
-    # Se realiza otra convolución 2D 3x3, con 32 filtros.
-    model.add(Conv2D(128, kernel_size=(3, 3), activation=LeakyReLU()))
-    
-    # Se realiza una convolución 1x1 para que las convoluciones siguientes no
-    # sean tan pesadas. La convolución se realiza con 8 filtros. 
-    model.add(Conv2D(32, kernel_size=(1, 1), activation=LeakyReLU()))
-    
-    # Se realiza otra convolución 2D 3x3, con 32 filtros.
-    model.add(Conv2D(128, kernel_size=(3, 3), activation=LeakyReLU()))
-    
-    # Se realiza una convolución 1x1 para que las convoluciones siguientes no
-    # sean tan pesadas. La convolución se realiza con 8 filtros. 
-    model.add(Conv2D(32, kernel_size=(1, 1), activation=LeakyReLU()))
-    
-    # Se realiza otra convolución 2D 3x3, con 32 filtros.
-    model.add(Conv2D(128, kernel_size=(3, 3), activation=LeakyReLU()))
-    
-    # Otra capa MaxPooling2D
-    model.add(MaxPooling2D(pool_size=(2, 2)))
-    
-    # Se realiza un "aplanado" de los datos. Lo que se consigue con esto es 
-    # disponer de todos los píxeles en un array 1D para poder conectarlos
-    # totalmente a las neuronas posteriores.
-    model.add(Flatten())
-    
-    # Se mete una capa totalmente conectada con activación LeakyRelu y 200 neuronas.
-    model.add(Dense(200, activation=LeakyReLU()))
-
-    # Se mete una capa totalmente conectada con el número de clases que se están
-    # tratando y con activación 'softmax'. Esto es así porque se trata de un
-    # problema de clasificación multiclase, y se usa softmax para que la salida
-    # de cada neurona de esta capa sea la probabilidad de pertenecer a cada 
-    # clase.
-    model.add(Dense(num_classes, activation='softmax'))
-    
-    return model
 
 
 #########################################################################
 ################ FUNCIÓN DE EJECUCIÓN DE LA MEJORA 4 ####################
 #########################################################################
 
-# Función de ejecución de la mejora 3.
+# Función de ejecución de la mejora 4.
 def mejora4():
     print("------------- MEJORA 4: Profundización de la red\n") 
     
@@ -814,7 +720,7 @@ def mejora4():
     # Primero se obtienen los datos
     x_train, y_train, x_test, y_test = cargarImagenes()
     
-    # Se obtienen los iteradores con los datos normalizados
+    # Se obtienen los iteradores con los datos normalizados y aumentados
     it_train, it_val, it_test = data_augmentation_normalized(x_train, y_train,
                                                              x_test, y_test,
                                                              batch_size)
@@ -823,7 +729,7 @@ def mejora4():
     input_shape = (32,32,3)
     num_classes = 25
     
-    # Se obtiene el modelo
+    # Se obtiene el modelo ampliado
     model = get_deep_basenet(input_shape, num_classes)
     
     # Se imprime el resumen del modelo dado
@@ -834,7 +740,7 @@ def mejora4():
     # Compilación del modelo
     model_compile(model)
     
-    # Se entrena el modelo
+    # Se entrena el modelo con early stopping
     hist = train_model_early(model, it_train, it_val, epochs)
     
     print("\n------ Evolución función de pérdida y accuracy")
@@ -855,3 +761,736 @@ def mejora4():
     input("\n--- Pulsar tecla para continuar ---\n")
     
     tf.keras.backend.clear_session()
+    
+# =============================================================================
+# MEJORA 5 -> Introducción de BatchNormalization
+# =============================================================================
+
+#########################################################################
+################ BASENET AMPLIADO BATCHNORMALIZATION ####################
+#########################################################################
+
+# Función que crea el modelo BaseNet ampliado con BatchNormalization. Recibe como
+# parámetros el input_shape de las imágenes de entrada (dimensiones de la
+# imagen de entrada) y el número de clases que se están tratando (num_classes).
+
+def get_deep_batch_basenet(input_shape, num_classes):
+    
+    # El modelo BaseNet se define como un modelo secuencial, las capas añadidas
+    # se irán apilando al final.
+    model = Sequential()
+    
+    # Se realiza una convolución transpuesta para no perder demasiada dimensionalidad.
+    # Además, se le da más importancia a las características centrales.
+    model.add(Conv2DTranspose(6, kernel_size=(3, 3), input_shape=input_shape))
+    
+    # Se añade la capa de BatchNormalization
+    model.add(BatchNormalization())
+    
+    # Se añade la función de activación ReLU.
+    model.add(ReLU())
+    
+    # Se realiza una convolución transpuesta para no perder demasiada dimensionalidad.
+    # Además, se le da más importancia a las características centrales.
+    model.add(Conv2DTranspose(6, kernel_size=(3, 3)))
+    
+    # Se añade la capa de BatchNormalization
+    model.add(BatchNormalization())
+    
+    # Se añade la función de activación ReLU.
+    model.add(ReLU())
+    
+    # Convolución 2D 5x5 con 6 filtros
+    model.add(Conv2D(6, kernel_size=(5, 5)))
+    
+    # Se añade la capa de BatchNormalization
+    model.add(BatchNormalization())
+    
+    # Se añade la función de activación ReLU.
+    model.add(ReLU())
+    
+    # Se sigue con una MaxPooling2D para reducir a la mitad ambas dimensiones.
+    model.add(MaxPooling2D(pool_size=(2, 2)))
+
+    # Se realiza otra convolución 2D, con 16 filtros.
+    model.add(Conv2D(16, kernel_size=(5, 5)))
+    
+    # Se añade la capa de BatchNormalization
+    model.add(BatchNormalization())
+    
+    # Se añade la función de activación ReLU.
+    model.add(ReLU())
+    
+    # Se realiza otra convolución 2D, con 32 filtros.
+    model.add(Conv2D(32, kernel_size=(3, 3)))
+    
+    # Se añade la capa de BatchNormalization
+    model.add(BatchNormalization())
+    
+    # Se añade la función de activación ReLU.
+    model.add(ReLU())
+    
+    # Otra capa MaxPooling2D
+    model.add(MaxPooling2D(pool_size=(2, 2)))
+    
+    # Se realiza un "aplanado" de los datos. Lo que se consigue con esto es 
+    # disponer de todos los píxeles en un array 1D para poder conectarlos
+    # totalmente a las neuronas posteriores.
+    model.add(Flatten())
+    
+    # Se mete una capa totalmente conectada con activación relu tal y como se
+    # especifica en la tabla. El número de neuronas es 50.
+    model.add(Dense(50, activation='relu'))
+
+    # Se mete una capa totalmente conectada con el número de clases que se están
+    # tratando y con activación 'softmax'. Esto es así porque se trata de un
+    # problema de clasificación multiclase, y se usa softmax para que la salida
+    # de cada neurona de esta capa sea la probabilidad de pertenecer a cada 
+    # clase.
+    model.add(Dense(num_classes, activation='softmax'))
+    
+    return model
+
+
+#########################################################################
+################ FUNCIÓN DE EJECUCIÓN DE LA MEJORA 5 ####################
+#########################################################################
+
+# Función de ejecución de la mejora 5.
+def mejora5():
+    print("------------- MEJORA 5: Introducción de BatchNormalization\n") 
+    
+    # Se definen los parámetros a usar. El número de épocas se establece a 100
+    # porque se considera que son suficientes para ver el comportamiento de la
+    # función de pérdida y la accuracy (además de porque más épocas supone
+    # más tiempo de cómputo). Para el tamaño de batch nos quedamos con 128.
+    epochs = 100
+    batch_size = 128
+    
+    # Primero se obtienen los datos
+    x_train, y_train, x_test, y_test = cargarImagenes()
+    
+    # Se obtienen los iteradores con los datos normalizados y aumentados
+    it_train, it_val, it_test = data_augmentation_normalized(x_train, y_train,
+                                                             x_test, y_test,
+                                                             batch_size)
+    
+    # Se establecen el input_shape y el número de clases (dados en el enunciado)
+    input_shape = (32,32,3)
+    num_classes = 25
+    
+    # Se obtiene el modelo ampliado con BatchNormalization
+    model = get_deep_batch_basenet(input_shape, num_classes)
+    
+    # Se imprime el resumen del modelo dado
+    print("Resumen del modelo diseñado\n")
+    model.summary()
+    input("\n--- Pulsar tecla para continuar ---\n")
+    
+    # Compilación del modelo
+    model_compile(model)
+    
+    # Se entrena el modelo con early stopping
+    hist = train_model_early(model, it_train, it_val, epochs)
+    
+    print("\n------ Evolución función de pérdida y accuracy")
+    
+    # Se pintan los gráficos que muestran la evolución de la función de
+    # pérdida y el accuracy.
+    mostrarEvolucion(hist.history, batch_size)
+    
+    input("\n--- Pulsar tecla para continuar ---\n")
+    
+    print("------ Valores de pérdida y accuracy obtenidos en test\n\n")
+    
+    # Valor de pérdida y accuracy en test
+    loss_test, acc_test = get_loss_accuraccy_it(model, it_test)
+    print('Test loss:', loss_test)
+    print('Accuracy test:', acc_test)
+    
+    input("\n--- Pulsar tecla para continuar ---\n")
+    
+    tf.keras.backend.clear_session()
+    
+# =============================================================================
+# MEJORA 6 -> Introducción de Dropout
+# =============================================================================
+
+#########################################################################
+########### BASENET AMPLIADO BATCHNORMALIZATION y DROPOUT ###############
+#########################################################################
+
+# Función que crea el modelo BaseNet ampliado con BatchNormalization y Dropout. 
+# Recibe como parámetros el input_shape de las imágenes de entrada (dimensiones
+# de laimagen de entrada) y el número de clases que se están tratando (num_classes).
+
+def get_deep_batch_drop_basenet(input_shape, num_classes):
+    
+    # El modelo BaseNet se define como un modelo secuencial, las capas añadidas
+    # se irán apilando al final.
+    model = Sequential()
+    
+    # Se realiza una convolución transpuesta para no perder demasiada dimensionalidad.
+    # Además, se le da más importancia a las características centrales.
+    model.add(Conv2DTranspose(6, kernel_size=(3, 3), input_shape=input_shape))
+    
+    # Se añade la capa de BatchNormalization
+    model.add(BatchNormalization())
+    
+    # Se añade la función de activación ReLU.
+    model.add(ReLU())
+    
+    # Se realiza una convolución transpuesta para no perder demasiada dimensionalidad.
+    # Además, se le da más importancia a las características centrales.
+    model.add(Conv2DTranspose(6, kernel_size=(3, 3)))
+    
+    # Se añade la capa de BatchNormalization
+    model.add(BatchNormalization())
+    
+    # Se añade la función de activación ReLU.
+    model.add(ReLU())
+    
+    # Convolución 2D 5x5 con 6 filtros
+    model.add(Conv2D(6, kernel_size=(5, 5)))
+    
+    # Se añade la capa de BatchNormalization
+    model.add(BatchNormalization())
+    
+    # Se añade la función de activación ReLU.
+    model.add(ReLU())
+    
+    # Se sigue con una MaxPooling2D para reducir a la mitad ambas dimensiones.
+    model.add(MaxPooling2D(pool_size=(2, 2)))
+
+    # Se realiza otra convolución 2D, con 16 filtros.
+    model.add(Conv2D(16, kernel_size=(5, 5)))
+    
+    # Se añade la capa de BatchNormalization
+    model.add(BatchNormalization())
+    
+    # Se añade la función de activación ReLU.
+    model.add(ReLU())
+    
+    # Se realiza otra convolución 2D, con 32 filtros.
+    model.add(Conv2D(32, kernel_size=(3, 3)))
+    
+    # Se añade la capa de BatchNormalization
+    model.add(BatchNormalization())
+    
+    # Se añade la función de activación ReLU.
+    model.add(ReLU())
+    
+    # Otra capa MaxPooling2D
+    model.add(MaxPooling2D(pool_size=(2, 2)))
+    
+    # Se realiza un "aplanado" de los datos. Lo que se consigue con esto es 
+    # disponer de todos los píxeles en un array 1D para poder conectarlos
+    # totalmente a las neuronas posteriores.
+    model.add(Flatten())
+    
+    # Se mete una capa totalmente conectada con activación relu tal y como se
+    # especifica en la tabla. El número de neuronas es 50.
+    model.add(Dense(50, activation='relu'))
+    
+    # Se añade la capa de Dropout
+    model.add(Dropout(0.3))
+
+    # Se mete una capa totalmente conectada con el número de clases que se están
+    # tratando y con activación 'softmax'. Esto es así porque se trata de un
+    # problema de clasificación multiclase, y se usa softmax para que la salida
+    # de cada neurona de esta capa sea la probabilidad de pertenecer a cada 
+    # clase.
+    model.add(Dense(num_classes, activation='softmax'))
+    
+    return model
+
+
+#########################################################################
+################ FUNCIÓN DE EJECUCIÓN DE LA MEJORA 6 ####################
+#########################################################################
+
+# Función de ejecución de la mejora 6.
+def mejora6():
+    print("------------- MEJORA 6: Introducción de Dropout\n") 
+    
+    # Se definen los parámetros a usar. El número de épocas se establece a 100
+    # porque se considera que son suficientes para ver el comportamiento de la
+    # función de pérdida y la accuracy (además de porque más épocas supone
+    # más tiempo de cómputo). Para el tamaño de batch nos quedamos con 128.
+    epochs = 100
+    batch_size = 128
+    
+    # Primero se obtienen los datos
+    x_train, y_train, x_test, y_test = cargarImagenes()
+    
+    # Se obtienen los iteradores con los datos normalizados y aumentados
+    it_train, it_val, it_test = data_augmentation_normalized(x_train, y_train,
+                                                             x_test, y_test,
+                                                             batch_size)
+    
+    # Se establecen el input_shape y el número de clases (dados en el enunciado)
+    input_shape = (32,32,3)
+    num_classes = 25
+    
+    # Se obtiene el modelo con BatchNormalization y Dropout
+    model = get_deep_batch_drop_basenet(input_shape, num_classes)
+    
+    # Se imprime el resumen del modelo dado
+    print("Resumen del modelo diseñado\n")
+    model.summary()
+    input("\n--- Pulsar tecla para continuar ---\n")
+    
+    # Compilación del modelo
+    model_compile(model)
+    
+    # Se entrena el modelo con early stopping
+    hist = train_model_early(model, it_train, it_val, epochs)
+    
+    print("\n------ Evolución función de pérdida y accuracy")
+    
+    # Se pintan los gráficos que muestran la evolución de la función de
+    # pérdida y el accuracy.
+    mostrarEvolucion(hist.history, batch_size)
+    
+    input("\n--- Pulsar tecla para continuar ---\n")
+    
+    print("------ Valores de pérdida y accuracy obtenidos en test\n\n")
+    
+    # Valor de pérdida y accuracy en test
+    loss_test, acc_test = get_loss_accuraccy_it(model, it_test)
+    print('Test loss:', loss_test)
+    print('Accuracy test:', acc_test)
+    
+    input("\n--- Pulsar tecla para continuar ---\n")
+    
+    tf.keras.backend.clear_session()
+    
+
+#########################################################################
+################ FUNCIÓN DE EJECUCIÓN DEL EJERCICIO 2 ###################
+#########################################################################
+
+# Función de ejecución del ejercicio 2
+def ejercicio2():
+    print("------------- EJERCICIO 2 -------------\n") 
+    
+    mejora1()
+    mejora2()
+    mejora3()
+    mejora4()
+    mejora5()
+    mejora6()
+    
+
+# =============================================================================
+# EJERCICIO 3
+# =============================================================================
+
+#########################################################################
+################## FUNCIÓN PARA LEER LAS IMÁGENES #######################
+#########################################################################
+
+# Dado un fichero train.txt o test.txt y el path donde se encuentran los
+# ficheros y las imágenes, esta función lee las imágenes
+# especificadas en ese fichero y devuelve las imágenes en un vector y 
+# sus clases en otro.
+
+def leerImagenes(vec_imagenes, path):
+  clases = np.array([img.split('/')[0] for img in vec_imagenes])
+  imagenes = np.array([img_to_array(load_img(path + "/" + img, 
+                                             target_size = (224, 224))) 
+                       for img in vec_imagenes])
+  return imagenes, clases
+
+#########################################################################
+############# FUNCIÓN PARA CARGAR EL CONJUNTO DE DATOS ##################
+#########################################################################
+
+# Usando la función anterior, y dado el path donde se encuentran las
+# imágenes y los archivos "train.txt" y "test.txt", devuelve las 
+# imágenes y las clases de train y test para usarlas con keras
+# directamente.
+
+def cargarDatos(path):
+  # Cargamos los ficheros
+  train_images = np.loadtxt(path + "/train.txt", dtype = str)
+  test_images = np.loadtxt(path + "/test.txt", dtype = str)
+  
+  # Leemos las imágenes con la función anterior
+  train, train_clases = leerImagenes(train_images, path)
+  test, test_clases = leerImagenes(test_images, path)
+  
+  train = train.astype('float32')
+  test = test.astype('float32')
+  
+  # Pasamos los vectores de las clases a matrices 
+  # Para ello, primero pasamos las clases a números enteros
+  clases_posibles = np.unique(np.copy(train_clases))
+  for i in range(len(clases_posibles)):
+    train_clases[train_clases == clases_posibles[i]] = i
+    test_clases[test_clases == clases_posibles[i]] = i
+
+  # Después, usamos la función to_categorical()
+  train_clases = np_utils.to_categorical(train_clases, 200)
+  test_clases = np_utils.to_categorical(test_clases, 200)
+  
+  # Barajar los datos
+  train_perm = np.random.permutation(len(train))
+  train = train[train_perm]
+  train_clases = train_clases[train_perm]
+
+  test_perm = np.random.permutation(len(test))
+  test = test[test_perm]
+  test_clases = test_clases[test_perm]
+  
+  return train, train_clases, test, test_clases
+
+"""## Usar ResNet50 preentrenada en ImageNet como un extractor de características"""
+
+
+#########################################################################
+############# PREPROCESAMIENTO DE LOS DATOS DE ENTRADA ##################
+#########################################################################
+
+# Dados los conjuntos de entrenamiento y test, esta función genera un iterador
+# de entrenamiento, un iterador de validación y un iterador de test de manera
+# que el preprocesamiento sea correcto para ser usados en ResNet50. También
+# recibe como parámetro el tamaño de batch (batch_size).
+def get_preprocess_resnet(x_train, y_train, x_test, y_test, batch_size):
+    
+    # Se generan los objetos de la clase ImageDataGenerator
+    train_gen = ImageDataGenerator(preprocessing_function = preprocess_input, 
+                                   validation_split = 0.1)
+    test_gen = ImageDataGenerator(preprocessing_function = preprocess_input)
+    
+    # Se obtienen los iteradores
+    it_train = train_gen.flow(x_train, y_train, batch_size = batch_size,
+                              subset = 'training')
+    it_val = train_gen.flow(x_train, y_train, batch_size = batch_size,
+                              subset = 'validation')
+    it_test = test_gen.flow(x_test, y_test, batch_size = batch_size)
+    
+    return it_train, it_val, it_test
+
+#########################################################################
+########## DEFINICIÓN DEL MODELO RESNET SIN LA ÚLTIMA CAPA ##############
+#########################################################################
+
+# Función que obtiene el modelo RESNET-50 con la última capa de clasificación
+# adaptada al problema de CALTECH.
+def get_resnet_softmax_top():
+    
+    # ResNet50 sin la última capa, con los pesos preentrenados en imagenet. Se
+    # especifica además que la capa de pooling no se elimine y las dimensiones
+    # de la imagen de entrada.
+    resnet = ResNet50(include_top = False, weights = 'imagenet', pooling = 'avg',
+                      input_shape = (224, 224, 3))
+    
+    # Se congela el modelo para que no se entrene
+    resnet.trainable = False
+    
+    # Se obtienen las últimas capas del modelo
+    last = resnet.output
+    
+    # Se añade la última capa de clasificación softmax (con el número de clases
+    # de nuestro problema)
+    last = Dense(200, activation = 'softmax')(last)
+    
+    # Se construye el nuevo modelo
+    model = tf.keras.models.Model(inputs = resnet.input, outputs = last)
+    
+    return model
+
+
+#########################################################################
+########### DEFINICIÓN DEL MODELO RESNET FC ÚLTIMA CAPA #################
+#########################################################################
+
+# Función que obtiene el modelo RESNET-50 añadiendo capas totalmente conectadas
+# y como capa final, la adecuada al problema de CALTECH.
+def get_resnet_fc_top():
+    # ResNet50 sin la última capa, con los pesos preentrenados en imagenet. Se
+    # especifica además que la capa de pooling no se elimine y las dimensiones
+    # de la imagen de entrada.
+    resnet = ResNet50(include_top = False, weights = 'imagenet', pooling = 'avg',
+                      input_shape = (224, 224, 3))
+    
+    # Se congela el modelo para que no se entrene
+    resnet.trainable = False
+    
+    # Se obtienen las últimas capas del modelo
+    last = resnet.output
+    
+    # Se añade las capas que se consideren, teniendo en cuenta que la última
+    # capa se tiene que adecuar a nuestro problema
+    last = Dense(1024, activation = LeakyReLU()) (last)
+    last = Dropout(0.5) (last)
+    last = Dense(512, activation = LeakyReLU()) (last)
+    last = Dropout(0.5) (last)
+    last = Dense(200, activation = 'softmax') (last)
+    
+    # Se construye el nuevo modelo
+    model = tf.keras.models.Model(inputs = resnet.input, outputs = last)
+        
+    return model
+
+
+#########################################################################
+################ FUNCIÓN DE EJECUCIÓN DEL APARTADO A ####################
+#########################################################################
+
+# Función de ejecución del apartado A del ejercicio 3.
+# Recibe como parámetros los iteradores de los datos de entrada.
+def apartadoA(it_train, it_val, it_test, batch_size, epochs):
+    
+    print("------------- APARTADO A\n") 
+    
+    print("\n--- Modelo ResNet50 adaptado al problema\n")
+    
+    # Se obtiene el modelo
+    model = get_resnet_softmax_top()
+    
+    # Compilación del modelo
+    model_compile(model)
+    
+    # Se entrena el modelo
+    hist = train_model_it(model, it_train, it_val, epochs)
+    
+    print("\n------ Evolución función de pérdida y accuracy")
+    
+    # Se pintan los gráficos que muestran la evolución de la función de
+    # pérdida y el accuracy.
+    mostrarEvolucion(hist.history, batch_size)
+    
+    input("\n--- Pulsar tecla para continuar ---\n")
+    
+    print("------ Valores de pérdida y accuracy obtenidos en test\n\n")
+    
+    # Valor de pérdida y accuracy en test
+    loss_test, acc_test = get_loss_accuraccy_it(model, it_test)
+    print('Test loss:', loss_test)
+    print('Accuracy test:', acc_test)
+    
+    input("\n--- Pulsar tecla para continuar ---\n")
+    
+    print("\n--- Modelo ResNet50 con nuevas FC y salida")
+    
+    # Se obtiene el modelo
+    model = get_resnet_fc_top()
+    
+    # Compilación del modelo
+    model_compile(model)
+    
+    # Se entrena el modelo
+    hist = train_model_it(model, it_train, it_val, epochs)
+    
+    print("\n------ Evolución función de pérdida y accuracy")
+    
+    # Se pintan los gráficos que muestran la evolución de la función de
+    # pérdida y el accuracy.
+    mostrarEvolucion(hist.history, batch_size)
+    
+    input("\n--- Pulsar tecla para continuar ---\n")
+    
+    print("------ Valores de pérdida y accuracy obtenidos en test\n\n")
+    
+    # Valor de pérdida y accuracy en test
+    loss_test, acc_test = get_loss_accuraccy_it(model, it_test)
+    print('Test loss:', loss_test)
+    print('Accuracy test:', acc_test)
+    
+    input("\n--- Pulsar tecla para continuar ---\n")
+    
+    tf.keras.backend.clear_session()
+    
+#########################################################################
+#### DEFINICIÓN DEL MODELO RESNET COMO EXTRACTOR DE CARACTERÍSTICAS #####
+#########################################################################
+
+# Función que obtiene el modelo RESNET-50 como extractor de características
+# (se eliminan las últimas capas de clasificación y pooling).
+def get_resnet_feature():
+    
+    # ResNet50 sin la última capa y sin la capa de pooling, con los pesos 
+    # preentrenados en imagenet. Se especifica además las dimensiones de la 
+    # imagen de entrada.
+    resnet = ResNet50(include_top = False, weights = 'imagenet', pooling = None,
+                      input_shape = (224, 224, 3))
+    
+    # Se congela el modelo para que no se entrene
+    resnet.trainable = False
+    
+    # Se obtienen las últimas capas del modelo
+    last = resnet.output
+    
+    # Se añade las capas que se consideren, teniendo en cuenta que la última
+    # capa se tiene que adecuar a nuestro problema
+    last = Conv2D(256, kernel_size = (1, 1)) (last)
+    last = BatchNormalization() (last)
+    last = LeakyReLU() (last)
+    last = Conv2D(128, kernel_size = (3,3)) (last)
+    last = BatchNormalization() (last)
+    last = LeakyReLU() (last)
+    last = Flatten() (last)
+    last = Dense(1024, activation = LeakyReLU()) (last)
+    last = Dropout(0.5) (last)
+    last = Dense(512, activation = LeakyReLU()) (last)
+    last = Dropout(0.5) (last)
+    last = Dense(200, activation = 'softmax') (last)
+    
+    # Se construye el nuevo modelo
+    model = tf.keras.models.Model(inputs = resnet.input, outputs = last)
+            
+    return model
+    
+    
+#########################################################################
+################ FUNCIÓN DE EJECUCIÓN DEL APARTADO B ####################
+#########################################################################
+
+# Función de ejecución del apartado B del ejercicio 3.
+# Recibe como parámetros los iteradores de los datos de entrada.
+def apartadoB(it_train, it_val, it_test, batch_size, epochs):
+    
+    print("------------- APARTADO B\n") 
+    
+    print("\n--- Modelo ResNet50 como extractor de características\n")
+    
+    # Se obtiene el modelo
+    model = get_resnet_feature()
+    
+    # Compilación del modelo
+    model_compile(model)
+    
+    # Se entrena el modelo
+    hist = train_model_it(model, it_train, it_val, epochs)
+    
+    print("\n------ Evolución función de pérdida y accuracy")
+    
+    # Se pintan los gráficos que muestran la evolución de la función de
+    # pérdida y el accuracy.
+    mostrarEvolucion(hist.history, batch_size)
+    
+    input("\n--- Pulsar tecla para continuar ---\n")
+    
+    print("------ Valores de pérdida y accuracy obtenidos en test\n\n")
+    
+    # Valor de pérdida y accuracy en test
+    loss_test, acc_test = get_loss_accuraccy_it(model, it_test)
+    print('Test loss:', loss_test)
+    print('Accuracy test:', acc_test)
+    
+    input("\n--- Pulsar tecla para continuar ---\n")
+    
+    tf.keras.backend.clear_session()
+
+
+#########################################################################
+######################## AJUSTE FINO CON RESNET #########################
+#########################################################################
+
+# Función que devuelve el modelo de Resnet50 con el que se va a realizar
+# ajuste fino.
+def get_resnet_fine():
+    # ResNet50 sin la última capa, con los pesos preentrenados en imagenet. Se
+    # especifica además que la capa de pooling no se elimine y las dimensiones
+    # de la imagen de entrada.
+    resnet = ResNet50(include_top = False, weights = 'imagenet', pooling = 'avg',
+                      input_shape = (224, 224, 3))
+    
+    # Se congelan algunas capas inferiores porque si no es inviable el ajuste
+    # fino (al menos en mi ordenador). Estas capas están más pegadas a la 
+    # extracción de características de bajo nivel, por lo cual es lógico pensar
+    # que nos pueden servir a nuestro problema ya que esta extracción es
+    # común a todas las imágenes (bordes, blobs, etc..).
+    for layer in resnet.layers[:100]:
+        layer.trainable = False
+    
+    # Se obtienen las últimas capas del modelo
+    last = resnet.output
+    
+    # Se añade las capas que se consideren, teniendo en cuenta que la última
+    # capa se tiene que adecuar a nuestro problema. Se consideran estas porque
+    # son las que mejor resultado han dado anteriormente.
+    last = Dense(1024, activation = LeakyReLU()) (last)
+    last = Dropout(0.5) (last)
+    last = Dense(512, activation = LeakyReLU()) (last)
+    last = Dropout(0.5) (last)
+    last = Dense(200, activation = 'softmax') (last)
+    
+    # Se construye el nuevo modelo
+    model = tf.keras.models.Model(inputs = resnet.input, outputs = last)
+    
+    model.summary()
+        
+    return model
+
+
+#########################################################################
+############## FUNCIÓN DE EJECUCIÓN DEL APARTADO C (2) ##################
+#########################################################################
+
+# Función de ejecución del apartado B del ejercicio 3.
+# Recibe como parámetros los iteradores de los datos de entrada.
+def apartadoC(it_train, it_val, it_test, batch_size, epochs):
+    
+    print("------------- APARTADO C\n") 
+    
+    print("\n--- Ajuste fino de Resnet50\n")
+    
+    # Se obtiene el modelo
+    model = get_resnet_fine()
+    
+    # Compilación del modelo
+    model_compile(model)
+    
+    # Se entrena el modelo
+    hist = train_model_it(model, it_train, it_val, epochs)
+    
+    print("\n------ Evolución función de pérdida y accuracy")
+    
+    # Se pintan los gráficos que muestran la evolución de la función de
+    # pérdida y el accuracy.
+    mostrarEvolucion(hist.history, batch_size)
+    
+    input("\n--- Pulsar tecla para continuar ---\n")
+    
+    print("------ Valores de pérdida y accuracy obtenidos en test\n\n")
+    
+    # Valor de pérdida y accuracy en test
+    loss_test, acc_test = get_loss_accuraccy_it(model, it_test)
+    print('Test loss:', loss_test)
+    print('Accuracy test:', acc_test)
+    
+    input("\n--- Pulsar tecla para continuar ---\n")
+    
+    tf.keras.backend.clear_session()
+    
+    
+#########################################################################
+############### FUNCIÓN DE EJECUCIÓN DEL EJERCICIO 3 ####################
+#########################################################################
+
+# Función de ejecución del ejercicio 3
+def ejercicio3():
+    
+    # Tamaño del batch a usar y número de épocas
+    batch_size = 128
+    epochs = 10
+    
+    # Se cargan las imágenes
+    x_train, y_train, x_test, y_test = cargarDatos("imagenes")
+    
+    # Se obtienen los iteradores
+    it_train, it_val, it_test = get_preprocess_resnet(x_train, y_train, x_test,
+                                                      y_test, batch_size)
+    
+    # Limpiar memoria
+    del x_train
+    del x_test
+    gc.collect()
+    
+    # Se llaman a los distintos apartados
+    apartadoA(it_train, it_val, it_test, batch_size, epochs)
+    apartadoB(it_train, it_val, it_test, batch_size, epochs)
+    apartadoC(it_train, it_val, it_test, batch_size, epochs)

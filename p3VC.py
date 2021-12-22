@@ -3,13 +3,30 @@
 @author: Exequiel Alberto Castro Rivero
 """
 
+##############################################################################
+# Estructura
+#   IMPORTS NECESARIOS
+#   FUNCIONES DE AYUDAS DADAS POR LOS PROFESORES
+#   FUNCIONES DEL EJERCICIO 1
+#   FUNCIONES DEL EJERCICIO 2
+#   FUNCIONES DEL EJERCICIO 3
+#   FUNCIONES MODULARES DE EJECUCIÓN DE CADA EJERCICIO
+##############################################################################
+
+# =============================================================================
+# IMPORTS NECESARIOS
+# =============================================================================
+
 #########################################################################
 ############ CARGAR LAS LIBRERÍAS NECESARIAS ############################
 #########################################################################
 
-# Terminar de rellenar este bloque con lo que vaya haciendo falta
+# Esto es necesario para evitar el fallo a la hora de descargar la base de
+# datos de CIFAR100.
 import ssl
 ssl._create_default_https_context = ssl._create_unverified_context
+
+# Recolector de basura
 import gc
 
 # Importar librerías necesarias
@@ -21,10 +38,10 @@ from sklearn.model_selection import train_test_split
 
 # Importar modelos y capas específicas que se van a usar
 from tensorflow.keras.models import Sequential
-from tensorflow.keras.layers import Dense, Flatten, Dropout, ReLU, BatchNormalization, LeakyReLU
+from tensorflow.keras.layers import Dense, Flatten, Dropout, BatchNormalization
 from tensorflow.keras.layers import Conv2D, MaxPooling2D, Conv2DTranspose
-
-from tensorflow.keras.preprocessing.image import load_img,img_to_array
+from tensorflow.keras.layers import ReLU, LeakyReLU
+from tensorflow.keras.applications.resnet50 import ResNet50, preprocess_input
 
 # Importar el optimizador a usar
 from tensorflow.keras.optimizers import Adam
@@ -35,13 +52,15 @@ from tensorflow.keras.losses import categorical_crossentropy
 # Importar el conjunto de datos
 from tensorflow.keras.datasets import cifar100
 
-from tensorflow.keras.applications.resnet50 import ResNet50, preprocess_input
-
+# Importar el generador de imágenes
 from tensorflow.keras.preprocessing.image import ImageDataGenerator
-import scipy
 
-FAST = False
+# Importar funciones necesarios para el cargado de datos
+from tensorflow.keras.preprocessing.image import load_img,img_to_array
 
+# =============================================================================
+# FUNCIONES DE AYUDAS DADAS POR LOS PROFESORES
+# =============================================================================
 
 #########################################################################
 ######## FUNCIÓN PARA CARGAR Y MODIFICAR EL CONJUNTO DE DATOS ###########
@@ -110,7 +129,28 @@ def calcularAccuracy(labels, preds):
 # del entrenamiento del modelo (lo que devuelven las funciones
 # fit() y fit_generator()).
 
-def mostrarEvolucion(hist, batch_size):
+def mostrarEvolucion(hist, title):
+
+  loss = hist['loss']
+  val_loss = hist['val_loss']
+  plt.plot(loss)
+  plt.plot(val_loss)
+  plt.legend(['Training loss', 'Validation loss'])
+  plt.title(title)
+  plt.show()
+
+  acc = hist['accuracy']
+  val_acc = hist['val_accuracy']
+  plt.plot(acc)
+  plt.plot(val_acc)
+  plt.legend(['Training accuracy', 'Validation accuracy'])
+  plt.title(title)
+  plt.show()
+
+# Sobrecarga de la función anterior para que muestre en el título el tamaño
+# de batch usado.
+
+def mostrarEvolucionBatch(hist, batch_size):
 
   loss = hist['loss']
   val_loss = hist['val_loss']
@@ -128,9 +168,67 @@ def mostrarEvolucion(hist, batch_size):
   plt.title("Batch size = " + str(batch_size))
   plt.show()
   
+#########################################################################
+################## FUNCIÓN PARA LEER LAS IMÁGENES #######################
+#########################################################################
+
+# Dado un fichero train.txt o test.txt y el path donde se encuentran los
+# ficheros y las imágenes, esta función lee las imágenes
+# especificadas en ese fichero y devuelve las imágenes en un vector y 
+# sus clases en otro.
+
+def leerImagenes(vec_imagenes, path):
+  clases = np.array([img.split('/')[0] for img in vec_imagenes])
+  imagenes = np.array([img_to_array(load_img(path + "/" + img, 
+                                             target_size = (224, 224))) 
+                       for img in vec_imagenes])
+  return imagenes, clases
+
+#########################################################################
+############# FUNCIÓN PARA CARGAR EL CONJUNTO DE DATOS ##################
+#########################################################################
+
+# Usando la función anterior, y dado el path donde se encuentran las
+# imágenes y los archivos "train.txt" y "test.txt", devuelve las 
+# imágenes y las clases de train y test para usarlas con keras
+# directamente.
+
+def cargarDatos(path):
+  # Cargamos los ficheros
+  train_images = np.loadtxt(path + "/train.txt", dtype = str)
+  test_images = np.loadtxt(path + "/test.txt", dtype = str)
+  
+  # Leemos las imágenes con la función anterior
+  train, train_clases = leerImagenes(train_images, path)
+  test, test_clases = leerImagenes(test_images, path)
+  
+  train = train.astype('float32')
+  test = test.astype('float32')
+  
+  # Pasamos los vectores de las clases a matrices 
+  # Para ello, primero pasamos las clases a números enteros
+  clases_posibles = np.unique(np.copy(train_clases))
+  for i in range(len(clases_posibles)):
+    train_clases[train_clases == clases_posibles[i]] = i
+    test_clases[test_clases == clases_posibles[i]] = i
+
+  # Después, usamos la función to_categorical()
+  train_clases = np_utils.to_categorical(train_clases, 200)
+  test_clases = np_utils.to_categorical(test_clases, 200)
+  
+  # Barajar los datos
+  train_perm = np.random.permutation(len(train))
+  train = train[train_perm]
+  train_clases = train_clases[train_perm]
+
+  test_perm = np.random.permutation(len(test))
+  test = test[test_perm]
+  test_clases = test_clases[test_perm]
+  
+  return train, train_clases, test, test_clases
 
 # =============================================================================
-# EJERCICIO 1
+# FUNCIONES DEL EJERCICIO 1
 # =============================================================================
 
 #########################################################################
@@ -158,7 +256,7 @@ def get_basenet(input_shape, num_classes):
     # Se sigue con una MaxPooling2D para reducir a la mitad ambas dimensiones.
     model.add(MaxPooling2D(pool_size=(2, 2)))
 
-    # Se realiza otra convolución 2D, con 16 filtros.
+    # Se realiza otra convolución 2D de tamaño 5x5, con 16 filtros.
     model.add(Conv2D(16, kernel_size=(5, 5), activation='relu'))
     
     # Otra capa MaxPooling2D
@@ -233,76 +331,6 @@ def get_loss_accuraccy(model, x_test, y_test):
     
     return score[0], score[1]
 
-
-#########################################################################
-################ FUNCIÓN DE EJECUCIÓN DEL EJERCICIO 1 ###################
-#########################################################################
-
-# Función que se encarga de la ejecución del ejercicio 1
-def ejercicio1():
-    print("------------- EJERCICIO 1 -------------\n") 
-    
-    # Se definen los parámetros a usar. El número de épocas se establece a 100
-    # porque se considera que son suficientes para ver el comportamiento de la
-    # función de pérdida y la accuracy (además de porque más épocas supone
-    # más tiempo de cómputo). Para el tamaño de batch se van a probar varios
-    # valores y se van a comprobar las diferencias
-    epochs = 100
-    batch_size = [32, 64, 128, 256]
-    
-    # Primero se obtienen los datos
-    x_train, y_train, x_test, y_test = cargarImagenes()
-    
-    # Se establecen el input_shape y el número de clases (dados en el enunciado)
-    input_shape = (32,32,3)
-    num_classes = 25
-    
-    # Se obtiene el modelo
-    model = get_basenet(input_shape, num_classes)
-    
-    # Se imprime el resumen del modelo dado
-    print("Resumen del modelo diseñado\n")
-    model.summary()
-    input("\n--- Pulsar tecla para continuar ---\n")
-    
-    # Compilación del modelo
-    model_compile(model)
-    
-    # Una vez tenemos el modelo base, y antes de entrenar, vamos a guardar los 
-    # pesos aleatorios con los que empieza la red, para poder reestablecerlos 
-    # después y comparar resultados entre no usar mejoras y sí usarlas.
-    weights = model.get_weights()
-    
-    print("Experimentación con diferentes tamaños de batch\n")
-    
-    # Para cada tamaño de batch se realiza el entrenamiento
-    for batch in batch_size:
-        # Se inicializan los pesos para que no haya entrenamiento incremental
-        model.set_weights(weights)
-        
-        print("\n--- Batch_size = " + str(batch) + "\n")
-        
-        # Se entrena el modelo con el batch
-        hist = train_model(model, x_train, y_train, batch, epochs)
-        
-        print("\n------ Evolución función de pérdida y accuracy")
-        
-        # Se pintan los gráficos que muestran la evolución de la función de
-        # pérdida y el accuracy.
-        mostrarEvolucion(hist.history, batch)
-        
-        input("\n--- Pulsar tecla para continuar ---\n")
-        
-        print("------ Valores de pérdida y accuracy obtenidos en test\n\n")
-        
-        # Valor de pérdida y accuracy en test
-        loss_test, acc_test = get_loss_accuraccy(model, x_test, y_test)
-        print('Test loss:', loss_test)
-        print('Accuracy test:', acc_test)
-        
-        input("\n--- Pulsar tecla para continuar ---\n")
-
-
 # =============================================================================
 # EJERCICIO 2
 # =============================================================================
@@ -324,7 +352,6 @@ def split_train_val(x_train, y_train):
                                             test_size=0.1, stratify=y_train)
     
     return x_train, y_train, x_val, y_val
-
 
 #########################################################################
 ######################## NORMALIZACIÓN DE DATOS #########################
@@ -353,7 +380,6 @@ def normalize_images(x_train, y_train, x_test, y_test, batch_size):
     it_test = datagen.flow(x_test, y_test, batch_size = batch_size)
     
     return it_train, it_val, it_test
-
 
 #########################################################################
 ################ ENTRENAMIENTO DEL MODELO (ITERADORES) ##################
@@ -387,8 +413,9 @@ def get_loss_accuraccy_it(model, it_test):
 ################ FUNCIÓN DE EJECUCIÓN DE LA MEJORA 1 ####################
 #########################################################################
 
-# Función de ejecución de la primera mejora
-def mejora1():
+# Función de ejecución de la primera mejora. Los datos son pasados por
+# parámetros.
+def mejora1(x_train, y_train, x_test, y_test):
     print("------------- MEJORA 1: Normalización de los datos\n") 
     
     # Se definen los parámetros a usar. El número de épocas se establece a 100
@@ -398,11 +425,9 @@ def mejora1():
     epochs = 100
     batch_size = 128
     
-    # Primero se obtienen los datos
-    x_train, y_train, x_test, y_test = cargarImagenes()
-    
     # Se obtienen los iteradores con los datos normalizados
-    it_train, it_val, it_test = normalize_images(x_train, y_train, x_test, y_test, batch_size)
+    it_train, it_val, it_test = normalize_images(x_train, y_train, x_test, 
+                                                 y_test, batch_size)
     
     # Se establecen el input_shape y el número de clases (dados en el enunciado)
     input_shape = (32,32,3)
@@ -426,7 +451,7 @@ def mejora1():
     
     # Se pintan los gráficos que muestran la evolución de la función de
     # pérdida y el accuracy.
-    mostrarEvolucion(hist.history, batch_size)
+    mostrarEvolucion(hist.history, "Mejora 1: Normalización datos")
     
     input("\n--- Pulsar tecla para continuar ---\n")
     
@@ -440,7 +465,6 @@ def mejora1():
     input("\n--- Pulsar tecla para continuar ---\n")
     
     tf.keras.backend.clear_session()
-
 
 # =============================================================================
 # MEJORA 2 -> Introducción de Early Stopping
@@ -465,8 +489,7 @@ def train_model_early(model, it_train, it_val, epochs):
     callback = tf.keras.callbacks.EarlyStopping(monitor='val_loss', patience=15,
                                                 restore_best_weights = True)
 
-    # Se realiza el entrenamiento con los parámetros pasados. Tal y como se
-    # se indica en el enunciado, se usa un 10% de los datos para validación.
+    # Se realiza el entrenamiento con los parámetros pasados.
     hist = model.fit(it_train,
           epochs=epochs,
           verbose=1,
@@ -480,8 +503,8 @@ def train_model_early(model, it_train, it_val, epochs):
 ################ FUNCIÓN DE EJECUCIÓN DE LA MEJORA 2 ####################
 #########################################################################
 
-# Función de ejecución de la mejora 2.
-def mejora2():
+# Función de ejecución de la mejora 2. Los datos son pasados por parámetros.
+def mejora2(x_train, y_train, x_test, y_test):
     print("------------- MEJORA 2: Entrenamiento con Early Stopping\n") 
     
     # Se definen los parámetros a usar. El número de épocas se establece a 100
@@ -491,11 +514,9 @@ def mejora2():
     epochs = 100
     batch_size = 128
     
-    # Primero se obtienen los datos
-    x_train, y_train, x_test, y_test = cargarImagenes()
-    
     # Se obtienen los iteradores con los datos normalizados
-    it_train, it_val, it_test = normalize_images(x_train, y_train, x_test, y_test, batch_size)
+    it_train, it_val, it_test = normalize_images(x_train, y_train, x_test,
+                                                 y_test, batch_size)
     
     # Se establecen el input_shape y el número de clases (dados en el enunciado)
     input_shape = (32,32,3)
@@ -512,14 +533,14 @@ def mejora2():
     # Compilación del modelo
     model_compile(model)
     
-    # Se entrena el modelo con early_stopping
+    # Se entrena el modelo con early stopping
     hist = train_model_early(model, it_train, it_val, epochs)
     
     print("\n------ Evolución función de pérdida y accuracy")
     
     # Se pintan los gráficos que muestran la evolución de la función de
     # pérdida y el accuracy.
-    mostrarEvolucion(hist.history, batch_size)
+    mostrarEvolucion(hist.history, "Mejora 2: Early Stopping")
     
     input("\n--- Pulsar tecla para continuar ---\n")
     
@@ -547,7 +568,7 @@ def mejora2():
 # validación y test normalizados de acuerdo a las muestras de entrenamiento.
 # También recibe como parámetro el número de batches. El data augmentation no
 # debe de ser muy agresivo debido a que podría haber un empeoramiento del
-# rendimiento.
+# rendimiento. También recibe por parámetro el tamaño del batch (batch_size).
 
 def data_augmentation_normalized(x_train, y_train, x_test, y_test, batch_size):
     
@@ -557,7 +578,8 @@ def data_augmentation_normalized(x_train, y_train, x_test, y_test, batch_size):
     # Se crea el objeto que se va a encargar de normalizar y aumentar los datos
     # de entrenamiento. No debe de ser muy agresivo para no distorsinar demasiado
     # los datos. En concreto, se tomarán rotaciones y zoom con unos valores no
-    # demasiado grandes para no obtener un empeoramiento drástico.
+    # demasiado grandes para no obtener un empeoramiento drástico además del
+    # "flip" horizontal.
     datagenTrain = ImageDataGenerator(featurewise_center = True, 
                                  featurewise_std_normalization = True, 
                                  zoom_range = 0.25, horizontal_flip = True,
@@ -584,8 +606,8 @@ def data_augmentation_normalized(x_train, y_train, x_test, y_test, batch_size):
 ################ FUNCIÓN DE EJECUCIÓN DE LA MEJORA 3 ####################
 #########################################################################
 
-# Función de ejecución de la mejora 3.
-def mejora3():
+# Función de ejecución de la mejora 3. Los datos son pasados por parámetros.
+def mejora3(x_train, y_train, x_test, y_test):
     print("------------- MEJORA 3: Data augmentation\n") 
     
     # Se definen los parámetros a usar. El número de épocas se establece a 100
@@ -594,9 +616,6 @@ def mejora3():
     # más tiempo de cómputo). Para el tamaño de batch nos quedamos con 128.
     epochs = 100
     batch_size = 128
-    
-    # Primero se obtienen los datos
-    x_train, y_train, x_test, y_test = cargarImagenes()
     
     # Se obtienen los iteradores con los datos normalizados y aumentados (sólo
     # entrenamiento)
@@ -619,14 +638,14 @@ def mejora3():
     # Compilación del modelo
     model_compile(model)
     
-    # Se entrena el modelo con early_stopping
+    # Se entrena el modelo con early stopping
     hist = train_model_early(model, it_train, it_val, epochs)
     
     print("\n------ Evolución función de pérdida y accuracy")
     
     # Se pintan los gráficos que muestran la evolución de la función de
     # pérdida y el accuracy.
-    mostrarEvolucion(hist.history, batch_size)
+    mostrarEvolucion(hist.history, "Mejora 3: Data augmentation")
     
     input("\n--- Pulsar tecla para continuar ---\n")
     
@@ -659,7 +678,7 @@ def get_deep_basenet(input_shape, num_classes):
     # se irán apilando al final.
     model = Sequential()
     
-    # Se realiza una convolución transpuesta para no perder demasiada dimensionalidad.
+    # Se realiza una convolución traspuesta para no perder demasiada dimensionalidad.
     # Además, se le da más importancia a las características centrales.
     model.add(Conv2DTranspose(6, kernel_size=(3, 3), activation='relu',
                               input_shape=input_shape))
@@ -706,8 +725,8 @@ def get_deep_basenet(input_shape, num_classes):
 ################ FUNCIÓN DE EJECUCIÓN DE LA MEJORA 4 ####################
 #########################################################################
 
-# Función de ejecución de la mejora 4.
-def mejora4():
+# Función de ejecución de la mejora 4. Los datos son pasados por parámetros.
+def mejora4(x_train, y_train, x_test, y_test):
     print("------------- MEJORA 4: Profundización de la red\n") 
     
     # Se definen los parámetros a usar. El número de épocas se establece a 100
@@ -716,9 +735,6 @@ def mejora4():
     # más tiempo de cómputo). Para el tamaño de batch nos quedamos con 128.
     epochs = 100
     batch_size = 128
-    
-    # Primero se obtienen los datos
-    x_train, y_train, x_test, y_test = cargarImagenes()
     
     # Se obtienen los iteradores con los datos normalizados y aumentados
     it_train, it_val, it_test = data_augmentation_normalized(x_train, y_train,
@@ -729,7 +745,7 @@ def mejora4():
     input_shape = (32,32,3)
     num_classes = 25
     
-    # Se obtiene el modelo ampliado
+    # Se obtiene el modelo BaseNet ampliado
     model = get_deep_basenet(input_shape, num_classes)
     
     # Se imprime el resumen del modelo dado
@@ -747,7 +763,7 @@ def mejora4():
     
     # Se pintan los gráficos que muestran la evolución de la función de
     # pérdida y el accuracy.
-    mostrarEvolucion(hist.history, batch_size)
+    mostrarEvolucion(hist.history, "Mejora 4: Profundización BaseNet")
     
     input("\n--- Pulsar tecla para continuar ---\n")
     
@@ -780,7 +796,7 @@ def get_deep_batch_basenet(input_shape, num_classes):
     # se irán apilando al final.
     model = Sequential()
     
-    # Se realiza una convolución transpuesta para no perder demasiada dimensionalidad.
+    # Se realiza una convolución traspuesta para no perder demasiada dimensionalidad.
     # Además, se le da más importancia a las características centrales.
     model.add(Conv2DTranspose(6, kernel_size=(3, 3), input_shape=input_shape))
     
@@ -790,7 +806,7 @@ def get_deep_batch_basenet(input_shape, num_classes):
     # Se añade la función de activación ReLU.
     model.add(ReLU())
     
-    # Se realiza una convolución transpuesta para no perder demasiada dimensionalidad.
+    # Se realiza una convolución traspuesta para no perder demasiada dimensionalidad.
     # Además, se le da más importancia a las características centrales.
     model.add(Conv2DTranspose(6, kernel_size=(3, 3)))
     
@@ -840,7 +856,13 @@ def get_deep_batch_basenet(input_shape, num_classes):
     
     # Se mete una capa totalmente conectada con activación relu tal y como se
     # especifica en la tabla. El número de neuronas es 50.
-    model.add(Dense(50, activation='relu'))
+    model.add(Dense(50))
+    
+    # Se añade la capa de BatchNormalization
+    model.add(BatchNormalization())
+    
+    # Se añade la función de activación ReLU.
+    model.add(ReLU())
 
     # Se mete una capa totalmente conectada con el número de clases que se están
     # tratando y con activación 'softmax'. Esto es así porque se trata de un
@@ -856,8 +878,8 @@ def get_deep_batch_basenet(input_shape, num_classes):
 ################ FUNCIÓN DE EJECUCIÓN DE LA MEJORA 5 ####################
 #########################################################################
 
-# Función de ejecución de la mejora 5.
-def mejora5():
+# Función de ejecución de la mejora 5. Los datos son pasados por parámetros.
+def mejora5(x_train, y_train, x_test, y_test):
     print("------------- MEJORA 5: Introducción de BatchNormalization\n") 
     
     # Se definen los parámetros a usar. El número de épocas se establece a 100
@@ -866,9 +888,6 @@ def mejora5():
     # más tiempo de cómputo). Para el tamaño de batch nos quedamos con 128.
     epochs = 100
     batch_size = 128
-    
-    # Primero se obtienen los datos
-    x_train, y_train, x_test, y_test = cargarImagenes()
     
     # Se obtienen los iteradores con los datos normalizados y aumentados
     it_train, it_val, it_test = data_augmentation_normalized(x_train, y_train,
@@ -897,7 +916,7 @@ def mejora5():
     
     # Se pintan los gráficos que muestran la evolución de la función de
     # pérdida y el accuracy.
-    mostrarEvolucion(hist.history, batch_size)
+    mostrarEvolucion(hist.history, "Mejora 5: BatchNormalization")
     
     input("\n--- Pulsar tecla para continuar ---\n")
     
@@ -990,10 +1009,16 @@ def get_deep_batch_drop_basenet(input_shape, num_classes):
     
     # Se mete una capa totalmente conectada con activación relu tal y como se
     # especifica en la tabla. El número de neuronas es 50.
-    model.add(Dense(50, activation='relu'))
+    model.add(Dense(50))
+    
+    # Se añade la capa de BatchNormalization
+    model.add(BatchNormalization())
+    
+    # Se añade la función de activación ReLU.
+    model.add(ReLU())
     
     # Se añade la capa de Dropout
-    model.add(Dropout(0.3))
+    model.add(Dropout(0.5))
 
     # Se mete una capa totalmente conectada con el número de clases que se están
     # tratando y con activación 'softmax'. Esto es así porque se trata de un
@@ -1004,13 +1029,12 @@ def get_deep_batch_drop_basenet(input_shape, num_classes):
     
     return model
 
-
 #########################################################################
 ################ FUNCIÓN DE EJECUCIÓN DE LA MEJORA 6 ####################
 #########################################################################
 
-# Función de ejecución de la mejora 6.
-def mejora6():
+# Función de ejecución de la mejora 6. Los datos son pasados por parámetros.
+def mejora6(x_train, y_train, x_test, y_test):
     print("------------- MEJORA 6: Introducción de Dropout\n") 
     
     # Se definen los parámetros a usar. El número de épocas se establece a 100
@@ -1019,9 +1043,6 @@ def mejora6():
     # más tiempo de cómputo). Para el tamaño de batch nos quedamos con 128.
     epochs = 100
     batch_size = 128
-    
-    # Primero se obtienen los datos
-    x_train, y_train, x_test, y_test = cargarImagenes()
     
     # Se obtienen los iteradores con los datos normalizados y aumentados
     it_train, it_val, it_test = data_augmentation_normalized(x_train, y_train,
@@ -1050,7 +1071,7 @@ def mejora6():
     
     # Se pintan los gráficos que muestran la evolución de la función de
     # pérdida y el accuracy.
-    mostrarEvolucion(hist.history, batch_size)
+    mostrarEvolucion(hist.history, "Mejora 6: Dropout")
     
     input("\n--- Pulsar tecla para continuar ---\n")
     
@@ -1065,88 +1086,9 @@ def mejora6():
     
     tf.keras.backend.clear_session()
     
-
-#########################################################################
-################ FUNCIÓN DE EJECUCIÓN DEL EJERCICIO 2 ###################
-#########################################################################
-
-# Función de ejecución del ejercicio 2
-def ejercicio2():
-    print("------------- EJERCICIO 2 -------------\n") 
-    
-    mejora1()
-    mejora2()
-    mejora3()
-    mejora4()
-    mejora5()
-    mejora6()
-    
-
 # =============================================================================
 # EJERCICIO 3
 # =============================================================================
-
-#########################################################################
-################## FUNCIÓN PARA LEER LAS IMÁGENES #######################
-#########################################################################
-
-# Dado un fichero train.txt o test.txt y el path donde se encuentran los
-# ficheros y las imágenes, esta función lee las imágenes
-# especificadas en ese fichero y devuelve las imágenes en un vector y 
-# sus clases en otro.
-
-def leerImagenes(vec_imagenes, path):
-  clases = np.array([img.split('/')[0] for img in vec_imagenes])
-  imagenes = np.array([img_to_array(load_img(path + "/" + img, 
-                                             target_size = (224, 224))) 
-                       for img in vec_imagenes])
-  return imagenes, clases
-
-#########################################################################
-############# FUNCIÓN PARA CARGAR EL CONJUNTO DE DATOS ##################
-#########################################################################
-
-# Usando la función anterior, y dado el path donde se encuentran las
-# imágenes y los archivos "train.txt" y "test.txt", devuelve las 
-# imágenes y las clases de train y test para usarlas con keras
-# directamente.
-
-def cargarDatos(path):
-  # Cargamos los ficheros
-  train_images = np.loadtxt(path + "/train.txt", dtype = str)
-  test_images = np.loadtxt(path + "/test.txt", dtype = str)
-  
-  # Leemos las imágenes con la función anterior
-  train, train_clases = leerImagenes(train_images, path)
-  test, test_clases = leerImagenes(test_images, path)
-  
-  train = train.astype('float32')
-  test = test.astype('float32')
-  
-  # Pasamos los vectores de las clases a matrices 
-  # Para ello, primero pasamos las clases a números enteros
-  clases_posibles = np.unique(np.copy(train_clases))
-  for i in range(len(clases_posibles)):
-    train_clases[train_clases == clases_posibles[i]] = i
-    test_clases[test_clases == clases_posibles[i]] = i
-
-  # Después, usamos la función to_categorical()
-  train_clases = np_utils.to_categorical(train_clases, 200)
-  test_clases = np_utils.to_categorical(test_clases, 200)
-  
-  # Barajar los datos
-  train_perm = np.random.permutation(len(train))
-  train = train[train_perm]
-  train_clases = train_clases[train_perm]
-
-  test_perm = np.random.permutation(len(test))
-  test = test[test_perm]
-  test_clases = test_clases[test_perm]
-  
-  return train, train_clases, test, test_clases
-
-"""## Usar ResNet50 preentrenada en ImageNet como un extractor de características"""
-
 
 #########################################################################
 ############# PREPROCESAMIENTO DE LOS DATOS DE ENTRADA ##################
@@ -1181,8 +1123,8 @@ def get_preprocess_resnet(x_train, y_train, x_test, y_test, batch_size):
 def get_resnet_softmax_top():
     
     # ResNet50 sin la última capa, con los pesos preentrenados en imagenet. Se
-    # especifica además que la capa de pooling no se elimine y las dimensiones
-    # de la imagen de entrada.
+    # especifica que la capa de pooling no se elimine y las dimensiones de la
+    # imagen de entrada.
     resnet = ResNet50(include_top = False, weights = 'imagenet', pooling = 'avg',
                       input_shape = (224, 224, 3))
     
@@ -1201,7 +1143,6 @@ def get_resnet_softmax_top():
     
     return model
 
-
 #########################################################################
 ########### DEFINICIÓN DEL MODELO RESNET FC ÚLTIMA CAPA #################
 #########################################################################
@@ -1209,6 +1150,7 @@ def get_resnet_softmax_top():
 # Función que obtiene el modelo RESNET-50 añadiendo capas totalmente conectadas
 # y como capa final, la adecuada al problema de CALTECH.
 def get_resnet_fc_top():
+    
     # ResNet50 sin la última capa, con los pesos preentrenados en imagenet. Se
     # especifica además que la capa de pooling no se elimine y las dimensiones
     # de la imagen de entrada.
@@ -1233,7 +1175,6 @@ def get_resnet_fc_top():
     model = tf.keras.models.Model(inputs = resnet.input, outputs = last)
         
     return model
-
 
 #########################################################################
 ################ FUNCIÓN DE EJECUCIÓN DEL APARTADO A ####################
@@ -1260,7 +1201,7 @@ def apartadoA(it_train, it_val, it_test, batch_size, epochs):
     
     # Se pintan los gráficos que muestran la evolución de la función de
     # pérdida y el accuracy.
-    mostrarEvolucion(hist.history, batch_size)
+    mostrarEvolucion(hist.history, "Resnet50 adaptado al problema")
     
     input("\n--- Pulsar tecla para continuar ---\n")
     
@@ -1273,7 +1214,7 @@ def apartadoA(it_train, it_val, it_test, batch_size, epochs):
     
     input("\n--- Pulsar tecla para continuar ---\n")
     
-    print("\n--- Modelo ResNet50 con nuevas FC y salida")
+    print("\n--- Modelo ResNet50 con nuevas FC y salida\n")
     
     # Se obtiene el modelo
     model = get_resnet_fc_top()
@@ -1288,7 +1229,7 @@ def apartadoA(it_train, it_val, it_test, batch_size, epochs):
     
     # Se pintan los gráficos que muestran la evolución de la función de
     # pérdida y el accuracy.
-    mostrarEvolucion(hist.history, batch_size)
+    mostrarEvolucion(hist.history, "ResNet50 con nuevas FC y salida")
     
     input("\n--- Pulsar tecla para continuar ---\n")
     
@@ -1343,7 +1284,6 @@ def get_resnet_feature():
             
     return model
     
-    
 #########################################################################
 ################ FUNCIÓN DE EJECUCIÓN DEL APARTADO B ####################
 #########################################################################
@@ -1369,7 +1309,7 @@ def apartadoB(it_train, it_val, it_test, batch_size, epochs):
     
     # Se pintan los gráficos que muestran la evolución de la función de
     # pérdida y el accuracy.
-    mostrarEvolucion(hist.history, batch_size)
+    mostrarEvolucion(hist.history, "ResNet50 feature extractor")
     
     input("\n--- Pulsar tecla para continuar ---\n")
     
@@ -1412,16 +1352,18 @@ def get_resnet_fine():
     # Se añade las capas que se consideren, teniendo en cuenta que la última
     # capa se tiene que adecuar a nuestro problema. Se consideran estas porque
     # son las que mejor resultado han dado anteriormente.
-    last = Dense(1024, activation = LeakyReLU()) (last)
+    last = Dense(1024) (last)
+    last = BatchNormalization() (last)
+    last = LeakyReLU() (last)
     last = Dropout(0.5) (last)
-    last = Dense(512, activation = LeakyReLU()) (last)
+    last = Dense(512) (last)
+    last = BatchNormalization() (last)
+    last = LeakyReLU() (last)
     last = Dropout(0.5) (last)
     last = Dense(200, activation = 'softmax') (last)
     
     # Se construye el nuevo modelo
     model = tf.keras.models.Model(inputs = resnet.input, outputs = last)
-    
-    model.summary()
         
     return model
 
@@ -1441,6 +1383,11 @@ def apartadoC(it_train, it_val, it_test, batch_size, epochs):
     # Se obtiene el modelo
     model = get_resnet_fine()
     
+    # Se imprime el resumen del modelo dado
+    print("Resumen del modelo obtenido\n")
+    model.summary()
+    input("\n--- Pulsar tecla para continuar ---\n")
+    
     # Compilación del modelo
     model_compile(model)
     
@@ -1451,7 +1398,7 @@ def apartadoC(it_train, it_val, it_test, batch_size, epochs):
     
     # Se pintan los gráficos que muestran la evolución de la función de
     # pérdida y el accuracy.
-    mostrarEvolucion(hist.history, batch_size)
+    mostrarEvolucion(hist.history, "Ajuste Fino ResNet50")
     
     input("\n--- Pulsar tecla para continuar ---\n")
     
@@ -1466,18 +1413,112 @@ def apartadoC(it_train, it_val, it_test, batch_size, epochs):
     
     tf.keras.backend.clear_session()
     
+# =============================================================================
+# FUNCIONES MODULARES DE EJECUCIÓN DE CADA EJERCICIO
+# =============================================================================
+
+#########################################################################
+################ FUNCIÓN DE EJECUCIÓN DEL EJERCICIO 1 ###################
+#########################################################################
+
+# Función que se encarga de la ejecución del ejercicio 1
+def ejercicio1():
+    print("------------- EJERCICIO 1 -------------\n") 
     
+    # Se definen los parámetros a usar. El número de épocas se establece a 100
+    # porque se considera que son suficientes para ver el comportamiento de la
+    # función de pérdida y la accuracy (además de porque más épocas supone
+    # más tiempo de cómputo). Para el tamaño de batch se van a probar varios
+    # valores y se van a comprobar las diferencias
+    epochs = 100
+    batch_size = [32, 64, 128, 256]
+    
+    # Primero se obtienen los datos
+    x_train, y_train, x_test, y_test = cargarImagenes()
+    
+    # Se establecen el input_shape y el número de clases (dados en el enunciado)
+    input_shape = (32,32,3)
+    num_classes = 25
+    
+    # Se obtiene el modelo
+    model = get_basenet(input_shape, num_classes)
+    
+    # Se imprime el resumen del modelo dado
+    print("Resumen del modelo diseñado\n")
+    model.summary()
+    input("\n--- Pulsar tecla para continuar ---\n")
+    
+    # Compilación del modelo
+    model_compile(model)
+    
+    # Una vez tenemos el modelo base, y antes de entrenar, vamos a guardar los 
+    # pesos aleatorios con los que empieza la red, para poder reestablecerlos 
+    # después y comparar resultados entre no usar mejoras y sí usarlas.
+    weights = model.get_weights()
+    
+    print("Experimentación con diferentes tamaños de batch\n")
+    
+    # Para cada tamaño de batch se realiza el entrenamiento
+    for batch in batch_size:
+        # Se inicializan los pesos para que no haya entrenamiento incremental
+        model.set_weights(weights)
+        
+        print("\n--- Batch_size = " + str(batch) + "\n")
+        
+        # Se entrena el modelo con el batch
+        hist = train_model(model, x_train, y_train, batch, epochs)
+        
+        print("\n------ Evolución función de pérdida y accuracy")
+        
+        # Se pintan los gráficos que muestran la evolución de la función de
+        # pérdida y el accuracy.
+        mostrarEvolucionBatch(hist.history, batch)
+        
+        input("\n--- Pulsar tecla para continuar ---\n")
+        
+        print("------ Valores de pérdida y accuracy obtenidos en test\n\n")
+        
+        # Valor de pérdida y accuracy en test
+        loss_test, acc_test = get_loss_accuraccy(model, x_test, y_test)
+        print('Test loss:', loss_test)
+        print('Accuracy test:', acc_test)
+        
+        input("\n--- Pulsar tecla para continuar ---\n")
+        
+    tf.keras.backend.clear_session()
+    
+#########################################################################
+################ FUNCIÓN DE EJECUCIÓN DEL EJERCICIO 2 ###################
+#########################################################################
+
+# Función de ejecución del ejercicio 2
+def ejercicio2():
+    print("------------- EJERCICIO 2 -------------\n")
+
+    # Primero se obtienen los datos de la base de datos CIFAR100
+    x_train, y_train, x_test, y_test = cargarImagenes()
+    
+    # Se llaman a las distintas mejoras
+    mejora1(x_train, y_train, x_test, y_test)
+    mejora2(x_train, y_train, x_test, y_test)
+    mejora3(x_train, y_train, x_test, y_test)
+    mejora4(x_train, y_train, x_test, y_test)
+    mejora5(x_train, y_train, x_test, y_test)
+    mejora6(x_train, y_train, x_test, y_test)
+
 #########################################################################
 ############### FUNCIÓN DE EJECUCIÓN DEL EJERCICIO 3 ####################
 #########################################################################
 
 # Función de ejecución del ejercicio 3
 def ejercicio3():
+    print("------------- EJERCICIO 3 -------------\n")
     
     # Tamaño del batch a usar y número de épocas
     batch_size = 128
     epochs = 10
     
+    print("\nCarga de imágenes...\n\n")
     # Se cargan las imágenes
     x_train, y_train, x_test, y_test = cargarDatos("imagenes")
     
@@ -1490,7 +1531,21 @@ def ejercicio3():
     del x_test
     gc.collect()
     
-    # # Se llaman a los distintos apartados
-    # apartadoA(it_train, it_val, it_test, batch_size, epochs)
-    # apartadoB(it_train, it_val, it_test, batch_size, epochs)
+    # Se llaman a los distintos apartados
+    apartadoA(it_train, it_val, it_test, batch_size, epochs)
+    apartadoB(it_train, it_val, it_test, batch_size, epochs)
     apartadoC(it_train, it_val, it_test, batch_size, epochs)
+    
+#########################################################################
+################ FUNCIÓN DE EJECUCIÓN DE LA PRÁCTICA ####################
+#########################################################################
+
+# Función de ejecución de la práctica.
+def practica():
+    
+    # Llamar a las funciones de los distintos ejercicios.
+    ejercicio1()
+    ejercicio2()
+    ejercicio3()
+    
+practica()

@@ -1403,7 +1403,7 @@ def get_resnet_fine():
     # extracción de características de bajo nivel, por lo cual es lógico pensar
     # que nos pueden servir a nuestro problema ya que esta extracción es
     # común a todas las imágenes (bordes, blobs, etc..).
-    for layer in resnet.layers[:100]:
+    for layer in resnet.layers[:143]:
         layer.trainable = False
     
     # Se obtienen las últimas capas del modelo
@@ -1490,7 +1490,7 @@ def ejercicio3():
     del x_test
     gc.collect()
     
-    # Se llaman a los distintos apartados
-    apartadoA(it_train, it_val, it_test, batch_size, epochs)
-    apartadoB(it_train, it_val, it_test, batch_size, epochs)
+    # # Se llaman a los distintos apartados
+    # apartadoA(it_train, it_val, it_test, batch_size, epochs)
+    # apartadoB(it_train, it_val, it_test, batch_size, epochs)
     apartadoC(it_train, it_val, it_test, batch_size, epochs)

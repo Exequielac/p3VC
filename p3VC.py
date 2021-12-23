@@ -284,8 +284,6 @@ def get_basenet(input_shape, num_classes):
 ######### DEFINICIÓN DEL OPTIMIZADOR Y COMPILACIÓN DEL MODELO ###########
 #########################################################################
 
-# Justificación Adam: https://arxiv.org/pdf/1412.6980.pdf
-
 # Compilación del modelo. Se usa entropia cruzada categórica al ser un problema
 # multiclase, Adam como optimizador pos su robustez y sus buenos resultados y
 # como métrica el 'accuracy' al ser una métrica típica en los problemas de
